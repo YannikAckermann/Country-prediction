@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+venv/
+.env
+
+# Datasets (zu groß für GitHub)
+archive/
+*.csv
+
+# Node.js / Frontend
+node_modules/
+.next/
+out/
+build/
+.DS_Store
