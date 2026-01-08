@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+import sqlite3
 from xgboost import XGBClassifier
 from sklearn.preprocessing import LabelEncoder
 from fastapi import FastAPI, HTTPException
@@ -22,6 +23,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ==========================================
+# DATABASE SETUP (SQLite)
+# ==========================================
+DB_NAME = "gamification.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    # Table for users and balance
+    c.execute('''CREATE TABLE IF NOT EXISTS users 
+                 (username TEXT PRIMARY KEY, balance REAL)''')
+    conn.commit()
+    conn.close()
+
+init_db()
 
 # Global variables to hold model and data artifacts
 model_artifacts = {}
@@ -178,6 +195,63 @@ class MatchInput(BaseModel):
     away_team: str
     neutral_venue: bool = False
 
+class UserLogin(BaseModel):
+    username: str
+
+class UpdateBalance(BaseModel):
+    username: str
+    amount: float
+
+@app.post("/user/login")
+def login_user(user: UserLogin):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Check if user exists
+    c.execute("SELECT balance FROM users WHERE username = ?", (user.username,))
+    row = c.fetchone()
+    
+    if row:
+        balance = row[0]
+    else:
+        # New User -> 1000 Start Balance
+        balance = 1000.0
+        c.execute("INSERT INTO users (username, balance) VALUES (?, ?)", (user.username, balance))
+        conn.commit()
+    
+    conn.close()
+    return {"username": user.username, "balance": balance}
+
+@app.post("/user/update_balance")
+def update_balance(data: UpdateBalance):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Get current balance
+    c.execute("SELECT balance FROM users WHERE username = ?", (data.username,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    new_balance = row[0] + data.amount
+    c.execute("UPDATE users SET balance = ? WHERE username = ?", (new_balance, data.username))
+    conn.commit()
+    conn.close()
+    return {"username": data.username, "new_balance": new_balance}
+
+@app.get("/leaderboard")
+def get_leaderboard():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    # Top 10 players
+    c.execute("SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10")
+    rows = c.fetchall()
+    conn.close()
+    
+    leaderboard = [{"rank": i+1, "username": r[0], "balance": r[1]} for i, r in enumerate(rows)]
+    return {"leaderboard": leaderboard}
+
 @app.get("/teams")
 def get_teams():
     teams = sorted(list(model_artifacts["win_rate"].index))
@@ -323,4 +397,4 @@ def predict_match(match: MatchInput):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
