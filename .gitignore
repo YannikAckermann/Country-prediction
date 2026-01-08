@@ -5,7 +5,7 @@ __pycache__/
 venv/
 .env
 
-# Datasets (zu groß für GitHub)
+# Datasets 
 archive/
 *.csv
 
